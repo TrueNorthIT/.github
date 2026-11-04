@@ -86,7 +86,7 @@ jobs:
         if: steps.auth.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: '"$KIT_DIR/adapters/github/run-analysis.sh" analyse'
+        run: bash "$KIT_DIR/adapters/github/run-analysis.sh" analyse
 
       # Posted as the app (truenorth-big-mac[bot]) so the agent can trust it later.
       - id: app
@@ -102,7 +102,7 @@ jobs:
         if: steps.auth.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: '"$KIT_DIR/adapters/github/run-analysis.sh" post'
+        run: bash "$KIT_DIR/adapters/github/run-analysis.sh" post
 
       - name: Release claim on failure
         if: failure() && steps.auth.outputs.ok == 'true'
