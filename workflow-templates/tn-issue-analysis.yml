@@ -1,7 +1,8 @@
 name: Issue analysis
 
-# A quick analysis comment on new issues (from TrueNorthIT members) and on any issue
-# labelled `analyse`, written by a local model on bigmac.
+# A quick analysis comment on new issues and on any issue labelled `analyse`, written by a
+# local model on bigmac. Only members of the TrueNorthIT `local-agents` team can trigger it;
+# admins manage who's in that team.
 #
 # Before it can run in this repo:
 #  - the truenorth-big-mac GitHub App is installed on it, and

@@ -9,6 +9,9 @@ name: TN issue analysis (shared)
 #
 # This file is public and holds plumbing only. The prompt and model settings live in the
 # private TrueNorthIT/tn-local-agents kit, fetched below at a pinned tag.
+#
+# Who can trigger it: members of the org team named in `team` (default: local-agents).
+# Admins manage access on that team's page; no workflow changes needed.
 on:
   workflow_call:
     inputs:
@@ -16,16 +19,15 @@ on:
         description: Tag of TrueNorthIT/tn-local-agents to run
         type: string
         default: v1.0.0
+      team:
+        description: Org team whose members may trigger it (team slug)
+        type: string
+        default: local-agents
 
 jobs:
   analyse:
-    # Who can trigger it, without a per-repo allow-list:
-    #  - issue opened by a TrueNorthIT org member (GitHub sets author_association), or
-    #  - the `analyse` label added (only people with triage/write access can add labels).
-    if: >-
-      (github.event.action == 'opened' &&
-        contains(fromJSON('["MEMBER", "OWNER"]'), github.event.issue.author_association)) ||
-      (github.event.action == 'labeled' && github.event.label.name == 'analyse')
+    # A new issue, or the `analyse` label. Who did it is checked in "Authorise".
+    if: github.event.action == 'opened' || github.event.label.name == 'analyse'
     # Job-level, so skipped runs from other label changes never touch the queue.
     concurrency: tn-issue-analysis-${{ github.repository }}-${{ github.event.issue.number }}
     runs-on: [self-hosted, bigmac]
@@ -39,7 +41,7 @@ jobs:
       KIT_REF: ${{ inputs.kit-ref }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      # Read-only access to the private kit, cloned outside the workspace.
+      # App token: reads the private kit, and team membership (Organization > Members: read).
       - id: kit-token
         uses: actions/create-github-app-token@v3.3.0
         with:
@@ -47,7 +49,27 @@ jobs:
           private-key: ${{ secrets.BIGMAC_APP_PRIVATE_KEY }}
           repositories: tn-local-agents
 
+      # Is whoever opened the issue / added the label an active member of the team?
+      # Fails closed: no team, no permission, or not a member means nobody gets through,
+      # and nothing private is fetched. Outsiders get a log line only, no comment.
+      - name: Authorise
+        id: auth
+        env:
+          GH_TOKEN: ${{ steps.kit-token.outputs.token }}
+          ORG: ${{ github.repository_owner }}
+          TEAM: ${{ inputs.team }}
+          WHO: ${{ github.event.sender.login }}
+        run: |
+          state=$(gh api "orgs/$ORG/teams/$TEAM/memberships/$WHO" --jq .state 2>/dev/null || true)
+          if [ "$state" = "active" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$WHO is not an active member of $ORG/$TEAM; skipping."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Fetch kit
+        if: steps.auth.outputs.ok == 'true'
         env:
           TOKEN: ${{ steps.kit-token.outputs.token }}
         run: |
@@ -58,12 +80,14 @@ jobs:
           echo "KIT_DIR=$RUNNER_TEMP/kit-analysis" >> "$GITHUB_ENV"
 
       - name: Analyse
+        if: steps.auth.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: '"$KIT_DIR/adapters/github/run-analysis.sh" analyse'
 
       # Posted as the app (truenorth-big-mac[bot]) so the agent can trust it later.
       - id: app
+        if: steps.auth.outputs.ok == 'true'
         uses: actions/create-github-app-token@v3.3.0
         with:
           app-id: ${{ vars.BIGMAC_APP_ID }}
@@ -71,12 +95,13 @@ jobs:
           repositories: ${{ github.event.repository.name }}
 
       - name: Post
+        if: steps.auth.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: '"$KIT_DIR/adapters/github/run-analysis.sh" post'
 
       - name: Release claim on failure
-        if: failure()
+        if: failure() && steps.auth.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh issue edit "$N" --remove-label analysis-in-progress || true
