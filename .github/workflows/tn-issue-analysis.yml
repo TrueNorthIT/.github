@@ -10,7 +10,7 @@ name: TN issue analysis (shared)
 # This file is public and holds plumbing only. The prompt and model settings live in the
 # private TrueNorthIT/tn-local-agents kit, fetched below at a pinned tag.
 #
-# Who can trigger it: members of the org team named in `team` (default: local-agents).
+# Who can trigger it: members of the org team named in `team` (default: local-agent-access).
 # Admins manage access on that team's page; no workflow changes needed.
 on:
   workflow_call:
@@ -22,7 +22,7 @@ on:
       team:
         description: Org team whose members may trigger it (team slug)
         type: string
-        default: local-agents
+        default: local-agent-access
 
 jobs:
   analyse:
