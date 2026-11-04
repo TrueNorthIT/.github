@@ -1,0 +1,6 @@
+{
+    "name": "TN issue analysis (bigmac)",
+    "description": "Posts a quick local-model analysis on new issues from TrueNorthIT members and on issues labelled 'analyse'. Runs on bigmac; nothing leaves TrueNorth.",
+    "iconName": "tn-local-agents",
+    "categories": ["Automation"]
+}

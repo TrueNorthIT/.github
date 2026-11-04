@@ -1,0 +1,86 @@
+name: TN issue analysis (shared)
+
+# Reusable workflow: a quick local-model analysis comment on an issue, run on bigmac.
+# Org repos call it with:
+#   jobs:
+#     analyse:
+#       uses: TrueNorthIT/.github/.github/workflows/tn-issue-analysis.yml@v1
+#       secrets: inherit
+#
+# This file is public and holds plumbing only. The prompt and model settings live in the
+# private TrueNorthIT/tn-local-agents kit, fetched below at a pinned tag.
+on:
+  workflow_call:
+    inputs:
+      kit-ref:
+        description: Tag of TrueNorthIT/tn-local-agents to run
+        type: string
+        default: v1.0.0
+
+jobs:
+  analyse:
+    # Who can trigger it, without a per-repo allow-list:
+    #  - issue opened by a TrueNorthIT org member (GitHub sets author_association), or
+    #  - the `analyse` label added (only people with triage/write access can add labels).
+    if: >-
+      (github.event.action == 'opened' &&
+        contains(fromJSON('["MEMBER", "OWNER"]'), github.event.issue.author_association)) ||
+      (github.event.action == 'labeled' && github.event.label.name == 'analyse')
+    # Job-level, so skipped runs from other label changes never touch the queue.
+    concurrency: tn-issue-analysis-${{ github.repository }}-${{ github.event.issue.number }}
+    runs-on: [self-hosted, bigmac]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      N: ${{ github.event.issue.number }}
+      KIT_REF: ${{ inputs.kit-ref }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # Read-only access to the private kit, cloned outside the workspace.
+      - id: kit-token
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          app-id: ${{ vars.BIGMAC_APP_ID }}
+          private-key: ${{ secrets.BIGMAC_APP_PRIVATE_KEY }}
+          repositories: tn-local-agents
+
+      - name: Fetch kit
+        env:
+          TOKEN: ${{ steps.kit-token.outputs.token }}
+        run: |
+          rm -rf "$RUNNER_TEMP/kit-analysis"
+          git -c credential.helper= \
+            -c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64)" \
+            clone -q --depth 1 --branch "$KIT_REF" https://github.com/TrueNorthIT/tn-local-agents.git "$RUNNER_TEMP/kit-analysis"
+          echo "KIT_DIR=$RUNNER_TEMP/kit-analysis" >> "$GITHUB_ENV"
+
+      - name: Analyse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$KIT_DIR/adapters/github/run-analysis.sh" analyse'
+
+      # Posted as the app (truenorth-big-mac[bot]) so the agent can trust it later.
+      - id: app
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          app-id: ${{ vars.BIGMAC_APP_ID }}
+          private-key: ${{ secrets.BIGMAC_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Post
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: '"$KIT_DIR/adapters/github/run-analysis.sh" post'
+
+      - name: Release claim on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue edit "$N" --remove-label analysis-in-progress || true
+
+      - name: Clean up
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/kit-analysis" "$RUNNER_TEMP/tn-analysis-$N"
