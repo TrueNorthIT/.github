@@ -48,6 +48,9 @@ jobs:
           app-id: ${{ vars.BIGMAC_APP_ID }}
           private-key: ${{ secrets.BIGMAC_APP_PRIVATE_KEY }}
           repositories: tn-local-agents
+          # Least privilege: clone the kit and check team membership, nothing else.
+          permission-contents: read
+          permission-members: read
 
       # Is whoever opened the issue / added the label an active member of the team?
       # Fails closed: no team, no permission, or not a member means nobody gets through,
@@ -93,6 +96,7 @@ jobs:
           app-id: ${{ vars.BIGMAC_APP_ID }}
           private-key: ${{ secrets.BIGMAC_APP_PRIVATE_KEY }}
           repositories: ${{ github.event.repository.name }}
+          permission-issues: write
 
       - name: Post
         if: steps.auth.outputs.ok == 'true'
